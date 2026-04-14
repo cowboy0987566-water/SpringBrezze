@@ -26,7 +26,6 @@ function App() {
 
   const processImageWithGoogle = async (base64Image) => {
     if (!GOOGLE_KEY) return []
-
     const url = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_KEY}`
     const payload = {
       requests: [{
@@ -42,54 +41,69 @@ function App() {
     // 取得所有文字的座標塊
     const blocks = annotations.slice(1).map(anno => ({
       text: anno.description,
-      x: anno.boundingPoly.vertices[0].x,
-      y: anno.boundingPoly.vertices[0].y,
-      w: anno.boundingPoly.vertices[1].x - anno.boundingPoly.vertices[0].x,
-      h: anno.boundingPoly.vertices[2].y - anno.boundingPoly.vertices[1].y
+      x: (anno.boundingPoly.vertices[0].x + anno.boundingPoly.vertices[1].x) / 2, // 使用中心點 X
+      y: (anno.boundingPoly.vertices[1].y + anno.boundingPoly.vertices[2].y) / 2, // 使用中心點 Y
+      bounds: anno.boundingPoly.vertices
     }))
 
-    // 1. 抓取日期表頭 (通常在頂部，y 較小)
-    const dateBlocks = blocks.filter(b => b.text.match(/^\d{1,2}\/\d{1,2}$/))
-    const sortedDates = dateBlocks.sort((a, b) => a.x - b.x)
-    
-    // 2. 抓取時間欄位 (通常在左側，x 較小，包含 ~ 或 -)
-    const timeBlocks = blocks.filter(b => b.text.match(/^\d{2}[:~-]\d{2}$/))
-    
-    // 3. 處理剩餘的對戰資訊
+    // 1. 抓取所有合法的日期 (MM/DD 格式)
+    const dateHeaders = blocks
+      .filter(b => b.text.match(/^\d{1,2}\/\d{1,2}$/))
+      .sort((a, b) => a.x - b.x) // 從左到右排序
+
+    // 2. 抓取所有合法的時間 (如 08~09, 12~13)
+    const timeLabels = blocks
+      .filter(b => b.text.match(/^\d{2}[-~]\d{2}$/))
+      .sort((a, b) => a.y - b.y) // 從上到下排序
+
     const schedule = []
-    
-    // 針對每一場對戰 (包含 vs 或 - 的區塊)
-    const matchBlocks = blocks.filter(b => b.text.includes('vs') || b.text.includes('-'))
-    
-    matchBlocks.forEach(mb => {
-      // 根據 MB 的 X 座標找出對應的日期
-      const closestDate = sortedDates.reduce((prev, curr) => {
-        return (Math.abs(curr.x - mb.x) < Math.abs(prev.x - mb.x)) ? curr : prev
-      }, sortedDates[0])
 
-      // 根據 MB 的 Y 座標找出對應的時間 (或見圖)
-      const closestTime = timeBlocks.reduce((prev, curr) => {
-        return (Math.abs(curr.y - mb.y) < Math.abs(prev.y - mb.y)) ? curr : prev
-      }, { text: "見原圖" })
+    // 3. 遍歷所有包含 - 或 vs 的文字塊，並嘗試定位
+    blocks.forEach(b => {
+      // 判斷是否為「隊伍對戰」型文字：長度大於 3 且包含連字號或是 vs
+      if (b.text.length >= 3 && (b.text.includes('-') || b.text.toLowerCase().includes('vs'))) {
+        
+        // 排除掉單純的時間數字 (如 12-13)
+        if (b.text.match(/^\d{2}[-~]\d{2}$/)) return;
 
-      // 清理隊名 (去除奇怪的標點)
-      const cleanedText = mb.text.replace(/[「」【】\[\]]/g, '')
-      const teams = cleanedText.split(/vs|-/i).map(t => t.trim())
+        // 尋找橫向最接近的日期 (容許較大的誤差值)
+        const date = dateHeaders.reduce((prev, curr) => {
+          return (Math.abs(curr.x - b.x) < Math.abs(prev.x - b.x)) ? curr : prev
+        }, dateHeaders[0])
 
-      if (teams.length >= 2 && closestDate) {
-        schedule.push({
-          date: closestDate.text,
-          time: closestTime.text,
-          teams: teams
-        })
+        // 尋找縱向最接近的時間
+        const time = timeLabels.reduce((prev, curr) => {
+          return (Math.abs(curr.y - b.y) < Math.abs(prev.y - b.y)) ? curr : prev
+        }, { text: "待確認" })
+
+        // 清理隊名
+        let teams = b.text.split(/-|[vV][sS]/).map(t => t.trim().replace(/[「」【】\[\]]/g, ''))
+        
+        if (teams.length >= 2 && teams[0] && teams[1] && date) {
+          schedule.push({
+            date: date.text,
+            time: time.text,
+            teams: teams
+          })
+        }
       }
     })
 
-    // 去重與排序
-    return schedule.sort((a, b) => {
-      const dateA = a.date.split('/').map(Number)
-      const dateB = b.date.split('/').map(Number)
-      return (dateA[0] - dateB[0]) || (dateA[1] - dateB[1])
+    // 去重處理
+    const unique = []
+    const seen = new Set()
+    schedule.forEach(s => {
+      const key = `${s.date}-${s.time}-${s.teams.join('-')}`
+      if (!seen.has(key)) {
+        unique.push(s)
+        seen.add(key)
+      }
+    })
+
+    return unique.sort((a, b) => {
+      const dayA = parseInt(a.date.split('/')[1])
+      const dayB = parseInt(b.date.split('/')[1])
+      return dayA - dayB
     })
   }
 
@@ -103,7 +117,7 @@ function App() {
         const results = await processImageWithGoogle(reader.result.split(',')[1])
         setAllMatches(results)
       } catch (err) {
-        console.error("解析失敗", err)
+        console.error(err)
       } finally {
         setIsProcessing(false)
       }
@@ -115,7 +129,7 @@ function App() {
     <div style={styles.container}>
       <header style={{ textAlign: 'center', marginBottom: '30px' }}>
         <h1 style={{ color: '#60a5fa' }}>春風壘球 AI 矩陣解析器</h1>
-        <p style={{ color: '#94a3b8' }}>已優化座標對齊演算法</p>
+        <p style={{ color: '#94a3b8' }}>當前版本：v2.1 (穩定分組版)</p>
       </header>
 
       {!isAuthenticated ? (
@@ -130,15 +144,15 @@ function App() {
         <>
           <div style={styles.glassCard}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ color: '#10b981' }}><ShieldCheck /> 已授權</div>
+              <div style={{ color: '#10b981' }}><ShieldCheck />已認證</div>
               <button onClick={() => { setIsAuthenticated(false); localStorage.removeItem('isBallTeamAdmin'); }} style={{ ...styles.btnPrimary, background: '#ef4444' }}>登出</button>
             </div>
             <div style={{ textAlign: 'center', marginTop: '30px' }}>
               <Upload size={48} color="#3b82f6" />
-              <h3>上傳賽程表</h3>
-              <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>系統現在會根據文字在圖片中的位置自動對齊日期</p>
-              <label style={{ ...styles.btnPrimary, marginTop: '20px' }}>
-                {isProcessing ? <Loader2 className="animate-spin" /> : '開始矩陣辨識'}
+              <h3>上傳賽程表圖檔</h3>
+              <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>系統會自動將文字塊對齊到最近的日期列</p>
+              <label style={{ ...styles.btnPrimary, marginTop: '20px', cursor: isProcessing ? 'not-allowed' : 'pointer' }}>
+                {isProcessing ? <Loader2 className="animate-spin" /> : '開始 AI 辨識'}
                 <input type="file" hidden onChange={handleFileUpload} accept="image/*" disabled={isProcessing} />
               </label>
             </div>
@@ -147,8 +161,8 @@ function App() {
           {allMatches && (
             <div style={styles.glassCard}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><TableIcon size={20} /> <h3>AI 辨識清單 ({allMatches.length} 場)</h3></div>
-                <input type="text" style={{...styles.input, width: '120px', margin: 0}} value={filterTeam} onChange={e => setFilterTeam(e.target.value)} placeholder="篩選球隊" />
+                <h3>AI 辨識清單 ({allMatches.length} 場)</h3>
+                <input type="text" style={{...styles.input, width: '120px', margin: 0}} value={filterTeam} onChange={e => setFilterTeam(e.target.value)} placeholder="搜尋球隊" />
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
