@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Upload, Calendar, Send, CheckCircle2, Lock, ShieldCheck, LogOut, Filter, Table as TableIcon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import './App.css'
@@ -33,28 +33,19 @@ function App() {
     localStorage.removeItem('isBallTeamAdmin')
   }
 
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = (e) => {
     const file = e.target.files[0]
     if (!file) return
 
     setIsUploading(true)
-    // 模擬全量 OCR 辨識邏輯 (包含所有日期與場次)
     setTimeout(() => {
       const mockData = [
-        // 3/15 日期
         { date: "3/15", time: "08~09", teams: ["崇曜", "柏飛"] },
         { date: "3/15", time: "09~10", teams: ["柏飛", "新夢幻"] },
         { date: "3/15", time: "10~11", teams: ["新夢幻", "崇曜"] },
-        { date: "3/15", time: "11~12", teams: ["富強", "永不"] },
-        // 4/12 日期
-        { date: "4/12", time: "08~09", teams: ["電信", "逢友"] },
-        { date: "4/12", time: "09~10", teams: ["逢友", "頭和"] },
-        { date: "4/12", time: "10~11", teams: ["頭和", "電信"] },
         { date: "4/12", time: "12~13", teams: ["元菱", "柏飛"] },
         { date: "4/12", time: "13~14", teams: ["柏飛", "鼎勝"] },
-        // 5/24 日期
         { date: "5/24", time: "08~09", teams: ["柏飛", "永不"] },
-        { date: "5/24", time: "09~10", teams: ["永不", "頭和"] },
         { date: "5/24", time: "10~11", teams: ["頭和", "柏飛"] }
       ]
       setAllMatches(mockData)
@@ -62,106 +53,82 @@ function App() {
     }, 2000)
   }
 
-  const filteredData = allMatches?.filter(m => 
-    !filterTeam || m.teams.some(t => t.includes(filterTeam))
-  )
-
   return (
-    <div className="container">
-      <header className="header">
+    <div className="container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <header className="header" style={{ padding: '20px 0' }}>
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
           <Calendar size={32} color="#3b82f6" />
-          <h1>春風壘球全量賽程管理</h1>
+          <h1 style={{ fontSize: '1.8rem' }}>春風壘球管理系統</h1>
         </div>
-        <p>完整辨識聯盟賽程並自動推播 myTeam 戰報</p>
+        <p style={{ fontSize: '0.9rem', marginTop: '5px' }}>自動辨識賽程並推播分組戰報</p>
       </header>
 
-      <main style={{ maxWidth: '1000px', margin: '0 auto' }}>
+      <main style={{ flex: 1, padding: '10px' }}>
         <AnimatePresence mode="wait">
           {!isAuthenticated ? (
-            <motion.div key="login" className="glass-card login-box" style={{ padding: '40px', textAlign: 'center' }}>
-              <Lock size={32} color="#3b82f6" style={{ marginBottom: '20px' }} />
-              <h2>管理員登入</h2>
-              <form onSubmit={handleLogin} style={{ marginTop: '24px' }}>
+            <motion.div 
+              key="login" 
+              initial={{ opacity: 0, y: 10 }} 
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-card" 
+              style={{ maxWidth: '400px', margin: '20px auto', padding: '30px', textAlign: 'center' }}
+            >
+              <Lock size={32} color="#3b82f6" style={{ marginBottom: '15px' }} />
+              <h2 style={{ fontSize: '1.4rem' }}>管理者登入</h2>
+              <form onSubmit={handleLogin} style={{ marginTop: '20px' }}>
                 <input
                   type="password"
-                  placeholder="請輸入後台密碼"
+                  placeholder="請輸入密碼"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input-field"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #334155', background: '#1e293b', color: 'white', marginBottom: '10px' }}
                 />
-                {loginError && <p style={{ color: '#ef4444', marginTop: '10px' }}>{loginError}</p>}
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '20px' }}>登入系統</button>
+                {loginError && <p style={{ color: '#ef4444', fontSize: '0.8rem' }}>{loginError}</p>}
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>登入</button>
               </form>
             </motion.div>
           ) : (
             <motion.div key="admin" initial={{ opacity: 0 }}>
-              {/* 功能選單 */}
-              <div className="glass-card" style={{ padding: '20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <ShieldCheck color="#10b981" />
-                  <span style={{ fontWeight: 600 }}>管理者：已授權</span>
-                </div>
-                <button onClick={handleLogout} className="btn" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>登出</button>
+              <div className="glass-card" style={{ padding: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.9rem', color: '#10b981' }}>● 管理員模式</span>
+                <button onClick={handleLogout} className="btn" style={{ fontSize: '0.8rem', padding: '5px 10px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>登出</button>
               </div>
 
-              {/* 上傳區 */}
-              <div className="glass-card" style={{ padding: '40px', textAlign: 'center', marginBottom: '24px' }}>
-                <Upload size={48} color="#3b82f6" style={{ marginBottom: '16px' }} />
-                <h3>上傳聯盟完整賽程圖</h3>
-                <p style={{ color: '#94a3b8', marginBottom: '24px' }}>系統將自動解析所有日期、時段與對戰組合</p>
-                <label className="btn btn-primary" style={{ cursor: isUploading ? 'not-allowed' : 'pointer' }}>
-                  {isUploading ? '深度辨識中 (掃描表格路徑)...' : '選擇圖片並全量辨識'}
+              <div className="glass-card" style={{ padding: '30px', textAlign: 'center', marginBottom: '20px' }}>
+                <Upload size={40} color="#3b82f6" style={{ marginBottom: '10px' }} />
+                <h3 style={{ fontSize: '1.2rem' }}>上傳聯盟賽程圖</h3>
+                <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '20px' }}>系統將解析完整列表並篩選特定隊伍</p>
+                <label className="btn btn-primary">
+                  {isUploading ? '辨識中...' : '選擇圖片'}
                   <input type="file" hidden onChange={handleFileUpload} accept="image/*" disabled={isUploading} />
                 </label>
               </div>
 
-              {/* 辨識結果看板 */}
               {allMatches && (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-card" style={{ padding: '24px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <TableIcon color="#3b82f6" />
-                      <h3 style={{ margin: 0 }}>辨識結果清單 (共 {allMatches.length} 場)</h3>
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <TableIcon size={20} color="#3b82f6" />
+                      <h3 style={{ fontSize: '1.1rem', margin: 0 }}>辨識清單</h3>
                     </div>
-                    
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.05)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <Filter size={16} color="#94a3b8" />
+                    <div style={{ display: 'flex', gap: '10px' }}>
                       <input 
                         type="text" 
-                        placeholder="篩選球隊 (如: 柏飛)" 
                         value={filterTeam}
                         onChange={(e) => setFilterTeam(e.target.value)}
-                        style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', width: '120px' }}
+                        style={{ background: '#1e293b', border: '1px solid #334155', color: 'white', padding: '5px 10px', borderRadius: '5px', width: '100px', fontSize: '0.8rem' }}
                       />
+                      <button className="btn btn-primary" style={{ background: '#10b981', fontSize: '0.8rem' }}>發送通知</button>
                     </div>
-
-                    <button className="btn btn-primary" style={{ background: '#10b981' }}>
-                      <Send size={18} /> 推播當週戰報
-                    </button>
                   </div>
-
-                  <div className="table-wrapper" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                      <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
-                        <tr style={{ color: '#94a3b8', borderBottom: '2px solid var(--glass-border)' }}>
-                          <th style={{ padding: '16px' }}>日期</th>
-                          <th style={{ padding: '16px' }}>時段</th>
-                          <th style={{ padding: '16px' }}>對戰組合</th>
-                          <th style={{ padding: '16px' }}>狀態</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredData.map((m, i) => (
-                          <tr key={i} style={{ borderBottom: '1px solid var(--glass-border)', background: m.teams.includes('柏飛') ? 'rgba(59, 130, 246, 0.1)' : 'transparent' }}>
-                            <td style={{ padding: '16px' }}>{m.date}</td>
-                            <td style={{ padding: '16px' }}>{m.time}</td>
-                            <td style={{ padding: '16px' }}>
-                              <span style={{ color: m.teams[0] === filterTeam ? '#60a5fa' : 'inherit' }}>{m.teams[0]}</span>
-                              <span style={{ margin: '0 8px', opacity: 0.3 }}>vs</span>
-                              <span style={{ color: m.teams[1] === filterTeam ? '#60a5fa' : 'inherit' }}>{m.teams[1]}</span>
-                            </td>
-                            <td style={{ padding: '16px' }}><CheckCircle2 size={16} color="#10b981" /></td>
+                  <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', fontSize: '0.9rem' }}>
+                      <tbody style={{ textAlign: 'left' }}>
+                        {allMatches.filter(m => !filterTeam || m.teams.some(t => t.includes(filterTeam))).map((m, i) => (
+                          <tr key={i} style={{ borderBottom: '1px solid #334155' }}>
+                            <td style={{ padding: '10px 5px' }}>{m.date}</td>
+                            <td style={{ padding: '10px 5px' }}>{m.time}</td>
+                            <td style={{ padding: '10px 5px' }}>{m.teams[0]} vs {m.teams[1]}</td>
                           </tr>
                         ))}
                       </tbody>
