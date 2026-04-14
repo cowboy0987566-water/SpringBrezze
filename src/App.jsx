@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Upload, Calendar, Send, CheckCircle2, Lock, ShieldCheck, LogOut, Table as TableIcon, Loader2, AlertCircle } from 'lucide-react'
+import { Upload, Calendar, Send, CheckCircle2, Lock, ShieldCheck, LogOut, Table as TableIcon, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
 
@@ -25,10 +25,7 @@ function App() {
   }, [])
 
   const processImageWithGoogle = async (base64Image) => {
-    if (!GOOGLE_KEY) {
-      alert("尚未設定 Google Vision API 金鑰，請在 Vercel 環境變數中設定 VITE_GOOGLE_VISION_KEY")
-      return
-    }
+    if (!GOOGLE_KEY) return []
 
     const url = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_KEY}`
     const payload = {
@@ -40,53 +37,73 @@ function App() {
 
     const response = await axios.post(url, payload)
     const annotations = response.data.responses[0].textAnnotations
-    if (!annotations) return []
+    if (!annotations || annotations.length < 2) return []
 
-    const fullText = annotations[0].description
-    console.log("Google Vision 識別原始文字:", fullText)
+    // 取得所有文字的座標塊
+    const blocks = annotations.slice(1).map(anno => ({
+      text: anno.description,
+      x: anno.boundingPoly.vertices[0].x,
+      y: anno.boundingPoly.vertices[0].y,
+      w: anno.boundingPoly.vertices[1].x - anno.boundingPoly.vertices[0].x,
+      h: anno.boundingPoly.vertices[2].y - anno.boundingPoly.vertices[1].y
+    }))
 
-    // 針對矩陣表格的高及解析邏輯
-    const lines = fullText.split('\n').filter(l => l.trim().length > 2)
-    const matches = []
-    let currentDate = ""
+    // 1. 抓取日期表頭 (通常在頂部，y 較小)
+    const dateBlocks = blocks.filter(b => b.text.match(/^\d{1,2}\/\d{1,2}$/))
+    const sortedDates = dateBlocks.sort((a, b) => a.x - b.x)
+    
+    // 2. 抓取時間欄位 (通常在左側，x 較小，包含 ~ 或 -)
+    const timeBlocks = blocks.filter(b => b.text.match(/^\d{2}[:~-]\d{2}$/))
+    
+    // 3. 處理剩餘的對戰資訊
+    const schedule = []
+    
+    // 針對每一場對戰 (包含 vs 或 - 的區塊)
+    const matchBlocks = blocks.filter(b => b.text.includes('vs') || b.text.includes('-'))
+    
+    matchBlocks.forEach(mb => {
+      // 根據 MB 的 X 座標找出對應的日期
+      const closestDate = sortedDates.reduce((prev, curr) => {
+        return (Math.abs(curr.x - mb.x) < Math.abs(prev.x - mb.x)) ? curr : prev
+      }, sortedDates[0])
 
-    lines.forEach(line => {
-      // 偵測日期 (如 3/15, 4/12)
-      const dateMatch = line.match(/^(\d{1,2}\/\d{1,2})$/)
-      if (dateMatch) {
-        currentDate = dateMatch[1]
-      }
+      // 根據 MB 的 Y 座標找出對應的時間 (或見圖)
+      const closestTime = timeBlocks.reduce((prev, curr) => {
+        return (Math.abs(curr.y - mb.y) < Math.abs(prev.y - mb.y)) ? curr : prev
+      }, { text: "見原圖" })
 
-      // 偵測對戰格式 (如 隊伍A-隊伍B 或 隊伍A vs 隊伍B)
-      if (line.includes('-') || line.toLowerCase().includes('vs')) {
-        const parts = line.split(/[vV][sS]|-/).map(p => p.trim())
-        if (parts.length >= 2 && currentDate) {
-          matches.push({
-            date: currentDate,
-            time: "見原圖", // 時段辨識通常較分散，建議看圖確認或進一步優化
-            teams: [parts[0], parts[1]]
-          })
-        }
+      // 清理隊名 (去除奇怪的標點)
+      const cleanedText = mb.text.replace(/[「」【】\[\]]/g, '')
+      const teams = cleanedText.split(/vs|-/i).map(t => t.trim())
+
+      if (teams.length >= 2 && closestDate) {
+        schedule.push({
+          date: closestDate.text,
+          time: closestTime.text,
+          teams: teams
+        })
       }
     })
 
-    return matches
+    // 去重與排序
+    return schedule.sort((a, b) => {
+      const dateA = a.date.split('/').map(Number)
+      const dateB = b.date.split('/').map(Number)
+      return (dateA[0] - dateB[0]) || (dateA[1] - dateB[1])
+    })
   }
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-
     setIsProcessing(true)
     const reader = new FileReader()
     reader.onloadend = async () => {
-      const base64Content = reader.result.split(',')[1]
       try {
-        const results = await processImageWithGoogle(base64Content)
+        const results = await processImageWithGoogle(reader.result.split(',')[1])
         setAllMatches(results)
       } catch (err) {
-        console.error("辨識失敗", err)
-        alert("辨識發生錯誤，請檢查 API Key 是否正確。")
+        console.error("解析失敗", err)
       } finally {
         setIsProcessing(false)
       }
@@ -96,61 +113,58 @@ function App() {
 
   return (
     <div style={styles.container}>
-      <header style={{ textAlign: 'center', marginBottom: '40px' }}>
-        <h1 style={{ color: '#60a5fa' }}>春風壘球 AI 管理中心</h1>
-        <p style={{ color: '#94a3b8' }}>Powered by Google Cloud Vision API</p>
+      <header style={{ textAlign: 'center', marginBottom: '30px' }}>
+        <h1 style={{ color: '#60a5fa' }}>春風壘球 AI 矩陣解析器</h1>
+        <p style={{ color: '#94a3b8' }}>已優化座標對齊演算法</p>
       </header>
 
       {!isAuthenticated ? (
         <div style={{...styles.glassCard, maxWidth: '400px', margin: '0 auto', textAlign: 'center'}}>
-          <h3>後台登入</h3>
+          <h3>管理者登入</h3>
           <form onSubmit={e => { e.preventDefault(); password === ADMIN_PASSWORD && setIsAuthenticated(true); localStorage.setItem('isBallTeamAdmin', 'true'); }}>
             <input type="password" style={styles.input} value={password} onChange={e => setPassword(e.target.value)} />
-            <br />
-            <button type="submit" style={styles.btnPrimary}>登入管理</button>
+            <br /><button type="submit" style={styles.btnPrimary}>進入後台</button>
           </form>
         </div>
       ) : (
         <>
           <div style={styles.glassCard}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981' }}><ShieldCheck /> 管理者已授權</div>
+              <div style={{ color: '#10b981' }}><ShieldCheck /> 已授權</div>
               <button onClick={() => { setIsAuthenticated(false); localStorage.removeItem('isBallTeamAdmin'); }} style={{ ...styles.btnPrimary, background: '#ef4444' }}>登出</button>
             </div>
-            
-            <div style={{ textAlign: 'center', marginTop: '40px' }}>
+            <div style={{ textAlign: 'center', marginTop: '30px' }}>
               <Upload size={48} color="#3b82f6" />
-              <h3>上傳賽程表圖片</h3>
-              <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>使用 Google AI 進行深度表格分析</p>
-              {!GOOGLE_KEY && <div style={{ color: '#fbbf24', fontSize: '0.8rem', marginTop: '10px' }}><AlertCircle size={14} inline /> 偵測到尚未設定 Vercel API Key，目前無法使用。</div>}
-              <label style={{ ...styles.btnPrimary, marginTop: '20px', cursor: isProcessing ? 'not-allowed' : 'pointer' }}>
-                {isProcessing ? <Loader2 className="animate-spin" /> : '選擇檔案'}
-                <input type="file" hidden onChange={handleFileUpload} accept="image/*" disabled={isProcessing || !GOOGLE_KEY} />
+              <h3>上傳賽程表</h3>
+              <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>系統現在會根據文字在圖片中的位置自動對齊日期</p>
+              <label style={{ ...styles.btnPrimary, marginTop: '20px' }}>
+                {isProcessing ? <Loader2 className="animate-spin" /> : '開始矩陣辨識'}
+                <input type="file" hidden onChange={handleFileUpload} accept="image/*" disabled={isProcessing} />
               </label>
             </div>
           </div>
 
           {allMatches && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={styles.glassCard}>
+            <div style={styles.glassCard}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><TableIcon size={20} /> <h3>AI 辨識清單 ({allMatches.length} 場)</h3></div>
                 <input type="text" style={{...styles.input, width: '120px', margin: 0}} value={filterTeam} onChange={e => setFilterTeam(e.target.value)} placeholder="篩選球隊" />
               </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr style={{ borderBottom: '1px solid #334155', color: '#94a3b8', textAlign: 'left' }}><th>日期</th><th>對戰組合</th></tr></thead>
-                <tbody>
-                  {allMatches.filter(m => m.teams.some(t => t.includes(filterTeam))).map((m, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #334155' }}>
-                      <td style={{ padding: '12px' }}>{m.date}</td>
-                      <td style={{ padding: '12px' }}>{m.teams[0]} <span style={{ opacity: 0.3 }}>vs</span> {m.teams[1]}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button style={{ ...styles.btnPrimary, background: '#10b981', marginTop: '20px', width: '100%', justifyContent: 'center' }}>
-                <Send size={18} /> 推播至 LINE 群組
-              </button>
-            </motion.div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead><tr style={{ borderBottom: '1px solid #334155', color: '#94a3b8' }}><th>日期</th><th>時段</th><th>對戰組合</th></tr></thead>
+                  <tbody>
+                    {allMatches.filter(m => !filterTeam || m.teams.some(t => t.includes(filterTeam))).map((m, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #334155', background: m.teams.includes('柏飛') ? 'rgba(59, 130, 246, 0.1)' : 'inherit' }}>
+                        <td style={{ padding: '12px' }}>{m.date}</td>
+                        <td style={{ padding: '12px' }}>{m.time}</td>
+                        <td style={{ padding: '12px' }}>{m.teams[0]} vs {m.teams[1]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </>
       )}
